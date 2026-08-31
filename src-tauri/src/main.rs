@@ -11,14 +11,16 @@ mod stt;
 mod tts;
 
 fn main() {
-    // TODO: Load application configuration
-    let _app_config = config::load_config();
-
-    // TODO: Register global push-to-talk hotkey using global-hotkey crate
-
-    // TODO: Initialize SQLite memory store
+    let app_config = config::load_config();
 
     tauri::Builder::default()
+        .setup(move |app| {
+            let handle = app.handle();
+            if let Err(e) = stt::setup_hotkey_and_stt(handle, &app_config) {
+                eprintln!("[Main] Failed to setup STT and Hotkey: {}", e);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::process_user_input,
             commands::get_status
