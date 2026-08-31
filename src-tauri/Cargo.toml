@@ -17,6 +17,7 @@ reqwest = { version = "0.11", features = ["json"] }
 rusqlite = { version = "0.29", features = ["bundled"] }
 global-hotkey = "0.2"
 cpal = "0.15"
+rodio = "0.19"
 rss = "2.0"
 whisper-rs = "0.10"
 ort = "2.0.0-rc.9"

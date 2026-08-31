@@ -19,6 +19,10 @@ fn main() {
         .setup(move |app| {
             app.manage(app_config.clone());
             let handle = app.handle();
+
+            let kokoro_tts = tts::setup_tts(handle.clone(), &app_config);
+            app.manage(kokoro_tts);
+
             if let Err(e) = stt::setup_hotkey_and_stt(handle, &app_config) {
                 eprintln!("[Main] Failed to setup STT and Hotkey: {}", e);
             }

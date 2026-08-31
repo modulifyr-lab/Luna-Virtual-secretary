@@ -121,14 +121,18 @@ pub fn setup_hotkey_and_stt(app_handle: AppHandle, config: &AppConfig) -> Result
                     tauri::async_runtime::spawn(async move {
                         match whisper.transcribe_audio(&samples).await {
                             Ok(text) => {
-                                let _ = app_handle.emit_all("stt-transcribed-text", &text);
+                                if text.trim().is_empty() {
+                                    let _ = app_handle.emit_all("stt-state-changed", "idle");
+                                } else {
+                                    let _ = app_handle.emit_all("stt-transcribed-text", &text);
+                                }
                             }
                             Err(e) => {
                                 eprintln!("[STT] Transcription error: {}", e);
                                 let _ = app_handle.emit_all("stt-transcribed-text", format!("[Error: {}]", e));
+                                let _ = app_handle.emit_all("stt-state-changed", "idle");
                             }
                         }
-                        let _ = app_handle.emit_all("stt-state-changed", "idle");
                     });
                 }
             }

@@ -57,6 +57,15 @@ body {
   color: #ffaa33;
 }
 
+.status-indicator.speaking {
+  color: #33ccff;
+}
+
+.speaking-text {
+  color: #33ccff;
+  font-weight: 500;
+}
+
 .app-indicator {
   color: var(--muted-text);
 }
