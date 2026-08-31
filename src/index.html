@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Luna - Virtual Secretary</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>Luna</h1>
+      <div id="status-bar" class="status-bar">
+        <span id="connection-status" class="status-indicator online">Online (Groq)</span>
+        <span id="active-app-status" class="app-indicator">Foreground App: Idle</span>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <section id="chat-panel" class="panel chat-panel">
+        <h2>Conversation Log</h2>
+        <div id="messages" class="messages-list">
+          <div class="message assistant">
+            <span class="sender">Luna:</span>
+            <span class="text">Ready and standing by. Press hotkey to speak.</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="thinking-panel" class="panel thinking-panel">
+        <h2>Status & Thought Process</h2>
+        <div id="thought-log" class="thought-log">
+          <p class="idle-text">Luna is ready.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <div class="input-bar">
+        <input type="text" id="text-input" placeholder="Type a command or press hotkey to speak..." />
+        <button id="send-btn">Send</button>
+      </div>
+    </footer>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

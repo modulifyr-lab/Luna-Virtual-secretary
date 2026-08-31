@@ -1,0 +1,3 @@
+# Dependencies for Luna Python bridge scripts
+pywin32
+duckduckgo-search
