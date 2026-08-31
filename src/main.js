@@ -6,6 +6,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const messagesList = document.getElementById('messages');
   const thoughtLog = document.getElementById('thought-log');
   const sttStatusIndicator = document.getElementById('stt-status-indicator');
+  const connectionStatusIndicator = document.getElementById('connection-status');
 
   // Tauri IPC invoke helper
   async function invokeCommand(cmd, payload = {}) {
@@ -15,10 +16,27 @@ window.addEventListener('DOMContentLoaded', () => {
     return null;
   }
 
-  async function sendPrompt(promptText) {
-    if (!promptText.trim()) return;
+  async function updateConnectionStatus() {
+    if (!connectionStatusIndicator) return;
+    try {
+      const statusText = await invokeCommand('get_status');
+      if (statusText) {
+        connectionStatusIndicator.textContent = statusText;
+        if (statusText.includes('Online')) {
+          connectionStatusIndicator.className = 'status-indicator online';
+        } else {
+          connectionStatusIndicator.className = 'status-indicator offline';
+        }
+      }
+    } catch (e) {
+      console.error('Failed to get connectivity status:', e);
+    }
+  }
 
-    appendMessage('User', promptText, 'user');
+  async function sendPrompt(promptText, senderLabel = 'User') {
+    if (!promptText || !promptText.trim()) return;
+
+    appendMessage(senderLabel, promptText, 'user');
     textInput.value = '';
 
     thoughtLog.innerHTML = '<p>Thinking...</p>';
@@ -28,15 +46,13 @@ window.addEventListener('DOMContentLoaded', () => {
       if (res) {
         appendMessage('Luna', res, 'assistant');
       } else {
-        setTimeout(() => {
-          appendMessage('Luna', 'This is a stub response from Luna.', 'assistant');
-          thoughtLog.innerHTML = '<p class="idle-text">Luna is ready.</p>';
-        }, 500);
+        appendMessage('Luna', 'Luna did not return a response.', 'assistant');
       }
     } catch (err) {
       appendMessage('Luna', `Error: ${err}`, 'assistant');
     }
     thoughtLog.innerHTML = '<p class="idle-text">Luna is ready.</p>';
+    updateConnectionStatus();
   }
 
   function appendMessage(sender, text, type) {
@@ -73,6 +89,10 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Initial status check and periodic updates
+  updateConnectionStatus();
+  setInterval(updateConnectionStatus, 15000);
+
   // Listen to Tauri backend events for hotkey STT pipeline
   if (window.__TAURI__ && window.__TAURI__.event) {
     window.__TAURI__.event.listen('stt-state-changed', (event) => {
@@ -82,8 +102,10 @@ window.addEventListener('DOMContentLoaded', () => {
 
     window.__TAURI__.event.listen('stt-transcribed-text', (event) => {
       const transcribedText = event.payload;
-      if (transcribedText) {
-        appendMessage('User (Voice)', transcribedText, 'user');
+      if (transcribedText && !transcribedText.startsWith('[Error:')) {
+        sendPrompt(transcribedText, 'User (Voice)');
+      } else if (transcribedText) {
+        appendMessage('System', transcribedText, 'assistant');
       }
     });
   }

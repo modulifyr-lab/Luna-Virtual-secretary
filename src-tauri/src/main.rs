@@ -10,11 +10,14 @@ mod skills;
 mod stt;
 mod tts;
 
+use tauri::Manager;
+
 fn main() {
     let app_config = config::load_config();
 
     tauri::Builder::default()
         .setup(move |app| {
+            app.manage(app_config.clone());
             let handle = app.handle();
             if let Err(e) = stt::setup_hotkey_and_stt(handle, &app_config) {
                 eprintln!("[Main] Failed to setup STT and Hotkey: {}", e);
