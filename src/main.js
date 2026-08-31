@@ -51,7 +51,6 @@ window.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       appendMessage('Luna', `Error: ${err}`, 'assistant');
     }
-    thoughtLog.innerHTML = '<p class="idle-text">Luna is ready.</p>';
     updateConnectionStatus();
   }
 
@@ -73,6 +72,9 @@ window.addEventListener('DOMContentLoaded', () => {
     } else if (state === 'transcribing') {
       sttStatusIndicator.textContent = 'STT: Transcribing...';
       thoughtLog.innerHTML = '<p class="transcribing-text">⚡ Transcribing audio with Whisper...</p>';
+    } else if (state === 'speaking') {
+      sttStatusIndicator.textContent = 'TTS: Speaking...';
+      thoughtLog.innerHTML = '<p class="speaking-text">🔊 Luna is speaking...</p>';
     } else {
       sttStatusIndicator.textContent = 'STT: Idle';
       thoughtLog.innerHTML = '<p class="idle-text">Luna is ready.</p>';
