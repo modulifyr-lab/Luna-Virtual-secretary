@@ -10,6 +10,8 @@ pub struct AppConfig {
     pub kokoro_model_path: String,
     pub ollama_base_url: String,
     pub heavy_gpu_apps: Vec<String>,
+    pub db_path: String,
+    pub fact_extraction_interval: usize,
 }
 
 impl Default for AppConfig {
@@ -21,6 +23,8 @@ impl Default for AppConfig {
             kokoro_model_path: "models/kokoro-v0_88.onnx".to_string(),
             ollama_base_url: "http://localhost:11434".to_string(),
             heavy_gpu_apps: vec!["minecraft.exe".to_string(), "cyberpunk2077.exe".to_string()],
+            db_path: "luna_memory.db".to_string(),
+            fact_extraction_interval: 10,
         }
     }
 }
