@@ -13,7 +13,7 @@ impl ForegroundContext {
 
         unsafe {
             let hwnd = GetForegroundWindow();
-            if hwnd.is_null() {
+            if hwnd == 0 {
                 return Err("No active foreground window found".to_string());
             }
 
@@ -24,7 +24,7 @@ impl ForegroundContext {
             }
 
             let process_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
-            if process_handle.is_null() {
+            if process_handle == 0 {
                 return Err(format!("Failed to open process handle for PID {}", process_id));
             }
 
