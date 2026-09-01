@@ -1,3 +1,4 @@
+pub mod app_launch;
 pub mod dictionary;
 pub mod file_search;
 pub mod news;
@@ -5,6 +6,7 @@ pub mod office_bridge;
 pub mod weather;
 pub mod web_search;
 
+use app_launch::AppLaunch;
 use dictionary::DictionarySkill;
 use file_search::FileSearch;
 use news::NewsSkill;
@@ -17,7 +19,8 @@ pub struct SkillDispatcher;
 impl SkillDispatcher {
     /// Attempts to match user prompt to a skill intent. Returns Some(Result<String, String>) if matched, or None if prompt should fall back to LLM.
     pub async fn try_dispatch(prompt: &str) -> Option<Result<String, String>> {
-        let lower = prompt.trim().to_lowercase();
+        let trimmed = prompt.trim();
+        let lower = trimmed.to_lowercase();
 
         // 1. Weather intent
         if lower.contains("weather") || lower.contains("forecast") || lower.contains("temperature outside") {
@@ -33,7 +36,7 @@ impl SkillDispatcher {
             } else if let Some(idx) = lower.find("meaning of ") {
                 &lower[idx + "meaning of ".len()..]
             } else {
-                prompt
+                trimmed
             };
             return Some(DictionarySkill::lookup_word(word).await);
         }
@@ -45,14 +48,14 @@ impl SkillDispatcher {
 
         // 4. File search intent ("find file", "find [x]", "search file", "search for file")
         if lower.starts_with("find file ") || lower.starts_with("find ") || lower.starts_with("search file ") {
-            let term = if let Some(rest) = prompt.trim().strip_prefix("find file ") {
-                rest
-            } else if let Some(rest) = prompt.trim().strip_prefix("find ") {
-                rest
-            } else if let Some(rest) = prompt.trim().strip_prefix("search file ") {
-                rest
+            let term = if lower.starts_with("find file ") {
+                &trimmed[10..]
+            } else if lower.starts_with("find ") {
+                &trimmed[5..]
+            } else if lower.starts_with("search file ") {
+                &trimmed[12..]
             } else {
-                prompt
+                trimmed
             };
             return Some(FileSearch::search(term));
         }
@@ -70,16 +73,30 @@ impl SkillDispatcher {
             return Some(bridge.execute(app, action, "{}"));
         }
 
-        // 6. Web search intent ("search for [x]", "google [x]", "search web for [x]")
-        if lower.starts_with("search for ") || lower.starts_with("search web ") || lower.starts_with("search ") {
-            let query = if let Some(rest) = prompt.trim().strip_prefix("search for ") {
-                rest
-            } else if let Some(rest) = prompt.trim().strip_prefix("search web ") {
-                rest
-            } else if let Some(rest) = prompt.trim().strip_prefix("search ") {
-                rest
+        // 6. App launch intent ("open [app]", "launch [app]", "start [app]")
+        if lower.starts_with("open ") || lower.starts_with("launch ") || lower.starts_with("start ") {
+            let app_name = if lower.starts_with("open ") {
+                &trimmed[5..]
+            } else if lower.starts_with("launch ") {
+                &trimmed[7..]
+            } else if lower.starts_with("start ") {
+                &trimmed[6..]
             } else {
-                prompt
+                trimmed
+            };
+            return Some(AppLaunch::launch_app(app_name));
+        }
+
+        // 7. Web search intent ("search for [x]", "google [x]", "search web for [x]")
+        if lower.starts_with("search for ") || lower.starts_with("search web ") || lower.starts_with("search ") {
+            let query = if lower.starts_with("search for ") {
+                &trimmed[11..]
+            } else if lower.starts_with("search web ") {
+                &trimmed[11..]
+            } else if lower.starts_with("search ") {
+                &trimmed[7..]
+            } else {
+                trimmed
             };
             return Some(WebSearchSkill::search(query).await);
         }
@@ -97,6 +114,7 @@ impl SkillDispatcher {
                 let bridge = OfficeBridge::new("python-bridge/office_control.py");
                 bridge.execute("word", "create_doc", params)
             }
+            "app_launch" | "launch_app" | "open_app" => AppLaunch::launch_app(params),
             "web_search" => WebSearchSkill::search(params).await,
             _ => Err(format!("Unknown skill name: {}", skill_name)),
         }
@@ -135,6 +153,14 @@ mod tests {
     async fn test_try_dispatch_office() {
         let res = SkillDispatcher::try_dispatch("open a new word document").await;
         assert!(res.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_try_dispatch_app_launch() {
+        let res1 = SkillDispatcher::try_dispatch("Open Chrome").await;
+        assert!(res1.is_some());
+        let res2 = SkillDispatcher::try_dispatch("LAUNCH Discord").await;
+        assert!(res2.is_some());
     }
 
     #[tokio::test]
