@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,9 +31,101 @@ impl Default for AppConfig {
     }
 }
 
+pub fn get_config_path() -> PathBuf {
+    if let Some(mut path) = dirs::config_dir() {
+        path.push("Luna");
+        path.push("config.toml");
+        path
+    } else {
+        PathBuf::from("config.toml")
+    }
+}
+
 pub fn load_config() -> AppConfig {
-    // TODO: Load configuration from file or environment variables
-    AppConfig::default()
+    let path = get_config_path();
+    load_config_from_path(&path)
+}
+
+pub fn load_config_from_path(path: &Path) -> AppConfig {
+    let default_config = AppConfig::default();
+
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(toml_str) = toml::to_string_pretty(&default_config) {
+            if let Err(e) = fs::write(path, toml_str) {
+                eprintln!("[Config] Failed to write default config to {:?}: {}", path, e);
+            } else {
+                println!("[Config] Created default config file at {:?}", path);
+            }
+        }
+        return default_config;
+    }
+
+    let contents = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[Config] Failed to read config file at {:?}: {}, using defaults", path, e);
+            return default_config;
+        }
+    };
+
+    let parsed_val: Result<toml::Value, _> = toml::from_str(&contents);
+    let table = match parsed_val {
+        Ok(toml::Value::Table(t)) => t,
+        _ => {
+            eprintln!("[Config] Failed to parse TOML from {:?}, falling back to defaults", path);
+            return default_config;
+        }
+    };
+
+    AppConfig {
+        groq_api_key: table
+            .get("groq_api_key")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.groq_api_key),
+        hotkey_binding: table
+            .get("hotkey_binding")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.hotkey_binding),
+        whisper_model_path: table
+            .get("whisper_model_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.whisper_model_path),
+        kokoro_model_path: table
+            .get("kokoro_model_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.kokoro_model_path),
+        ollama_base_url: table
+            .get("ollama_base_url")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.ollama_base_url),
+        heavy_gpu_apps: table
+            .get("heavy_gpu_apps")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or(default_config.heavy_gpu_apps),
+        db_path: table
+            .get("db_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or(default_config.db_path),
+        fact_extraction_interval: table
+            .get("fact_extraction_interval")
+            .and_then(|v| v.as_integer())
+            .and_then(|i| if i >= 0 { Some(i as usize) } else { None })
+            .unwrap_or(default_config.fact_extraction_interval),
+    }
 }
 
 pub fn parse_hotkey(binding: &str) -> Result<HotKey, String> {
@@ -134,10 +228,56 @@ pub fn parse_hotkey(binding: &str) -> Result<HotKey, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_parse_hotkey() {
         let hk = parse_hotkey("Ctrl+Alt+Space");
         assert!(hk.is_ok());
+    }
+
+    #[test]
+    fn test_load_config_creates_default_file_when_missing() {
+        let temp_dir = std::env::temp_dir().join(format!("luna_cfg_test_{}", std::process::id()));
+        let cfg_path = temp_dir.join("subfolder").join("config.toml");
+
+        if cfg_path.exists() {
+            let _ = fs::remove_file(&cfg_path);
+        }
+
+        let loaded = load_config_from_path(&cfg_path);
+        assert_eq!(loaded.hotkey_binding, "Ctrl+Alt+Space");
+        assert!(cfg_path.exists());
+
+        let contents = fs::read_to_string(&cfg_path).unwrap();
+        assert!(contents.contains("hotkey_binding = \"Ctrl+Alt+Space\""));
+        assert!(contents.contains("heavy_gpu_apps ="));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_load_config_parses_file_and_fallbacks() {
+        let temp_dir = std::env::temp_dir().join(format!("luna_cfg_parse_test_{}", std::process::id()));
+        let cfg_path = temp_dir.join("config.toml");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let custom_toml = r#"
+groq_api_key = "gsk_test123"
+hotkey_binding = "Ctrl+Shift+L"
+heavy_gpu_apps = ["game.exe"]
+"#;
+        fs::write(&cfg_path, custom_toml).unwrap();
+
+        let loaded = load_config_from_path(&cfg_path);
+        assert_eq!(loaded.groq_api_key, "gsk_test123");
+        assert_eq!(loaded.hotkey_binding, "Ctrl+Shift+L");
+        assert_eq!(loaded.heavy_gpu_apps, vec!["game.exe".to_string()]);
+        // Unspecified fields fallback to defaults
+        assert_eq!(loaded.ollama_base_url, "http://localhost:11434");
+        assert_eq!(loaded.db_path, "luna_memory.db");
+        assert_eq!(loaded.fact_extraction_interval, 10);
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

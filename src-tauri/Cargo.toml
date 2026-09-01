@@ -21,6 +21,15 @@ rodio = "0.19"
 rss = "2.0"
 whisper-rs = "0.10"
 ort = "2.0.0-rc.9"
+dirs = "5.0"
+toml = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading"
+] }
 
 [features]
 # default custom-protocol is required for production builds or when `isCustomProtocol` is enabled
