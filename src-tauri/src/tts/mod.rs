@@ -108,25 +108,195 @@ impl KokoroTts {
     }
 }
 
-/// Converts input text characters/phonemes into integer token indices for Kokoro model.
-pub fn text_to_tokens(text: &str) -> Vec<i64> {
-    let mut tokens = vec![0i64]; // Start token ($pad)
-    for ch in text.chars() {
-        let code = match ch {
-            ' ' => 1i64,
-            'a'..='z' => (ch as i64 - 'a' as i64) + 2,
-            'A'..='Z' => (ch.to_ascii_lowercase() as i64 - 'a' as i64) + 2,
-            '0'..='9' => (ch as i64 - '0' as i64) + 28,
-            '.' => 38,
-            ',' => 39,
-            '!' => 40,
-            '?' => 41,
-            '\'' => 42,
-            _ => 1,
-        };
-        tokens.push(code);
+/// Shells out to espeak-ng (or falls back to misaki python bridge) to convert English text to IPA phonemes.
+pub fn g2p_phonemize(text: &str) -> String {
+    if text.trim().is_empty() {
+        return String::new();
     }
-    tokens.push(0i64); // End token ($pad)
+
+    // Try shelling out to espeak-ng first
+    if let Ok(output) = std::process::Command::new("espeak-ng")
+        .args(&["-q", "--ipa=3", "-v", "en-us", text])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stdout.is_empty() {
+                return stdout;
+            }
+        }
+    }
+
+    // Fall back to python misaki bridge (python-bridge/g2p.py)
+    let script_path = "python-bridge/g2p.py";
+    let python_bin = if cfg!(target_os = "windows") { "python" } else { "python3" };
+
+    if let Ok(output) = std::process::Command::new(python_bin)
+        .arg(script_path)
+        .arg(text)
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stdout.is_empty() {
+                return stdout;
+            }
+        }
+    }
+
+    // Secondary fallback: attempt 'python' binary if python3 was used or vice versa
+    let alt_python = if python_bin == "python3" { "python" } else { "python3" };
+    if let Ok(output) = std::process::Command::new(alt_python)
+        .arg(script_path)
+        .arg(text)
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !stdout.is_empty() {
+                return stdout;
+            }
+        }
+    }
+
+    // Last resort fallback: raw text
+    text.to_string()
+}
+
+/// Maps an IPA character to Kokoro-82M vocabulary index.
+pub fn char_to_kokoro_token(ch: char) -> Option<i64> {
+    let token = match ch {
+        ';' => 1,
+        ':' => 2,
+        ',' => 3,
+        '.' => 4,
+        '!' => 5,
+        '?' => 6,
+        '—' => 9,
+        '…' => 10,
+        '"' => 11,
+        '(' => 12,
+        ')' => 13,
+        '“' => 14,
+        '”' => 15,
+        ' ' => 16,
+        '̃' => 17,
+        'ʣ' => 18,
+        'ʥ' => 19,
+        'ʦ' => 20,
+        'ʨ' => 21,
+        'ᵝ' => 22,
+        'ꭧ' => 23,
+        'A' => 24,
+        'I' => 25,
+        'O' => 31,
+        'Q' => 33,
+        'S' => 35,
+        'T' => 36,
+        'W' => 39,
+        'Y' => 41,
+        'ᵊ' => 42,
+        'a' => 43,
+        'b' => 44,
+        'c' => 45,
+        'd' => 46,
+        'e' => 47,
+        'f' => 48,
+        'h' => 50,
+        'i' => 51,
+        'j' => 52,
+        'k' => 53,
+        'l' => 54,
+        'm' => 55,
+        'n' => 56,
+        'o' => 57,
+        'p' => 58,
+        'q' => 59,
+        'r' => 60,
+        's' => 61,
+        't' => 62,
+        'u' => 63,
+        'v' => 64,
+        'w' => 65,
+        'x' => 66,
+        'y' => 67,
+        'z' => 68,
+        'ɑ' => 69,
+        'ɐ' => 70,
+        'ɒ' => 71,
+        'æ' => 72,
+        'β' => 75,
+        'ɔ' => 76,
+        'ɕ' => 77,
+        'ç' => 78,
+        'ɖ' => 80,
+        'ð' => 81,
+        'ʤ' => 82,
+        'ə' => 83,
+        'ɚ' => 85,
+        'ɛ' => 86,
+        'ɜ' => 87,
+        'ɟ' => 90,
+        'ɡ' => 92,
+        'ɥ' => 99,
+        'ɨ' => 101,
+        'ɪ' => 102,
+        'ʝ' => 103,
+        'ɯ' => 110,
+        'ɰ' => 111,
+        'ŋ' => 112,
+        'ɳ' => 113,
+        'ɲ' => 114,
+        'ɴ' => 115,
+        'ø' => 116,
+        'ɸ' => 118,
+        'θ' => 119,
+        'œ' => 120,
+        'ɹ' => 123,
+        'ɾ' => 36, // American English flap ɾ -> T (token 36)
+        'ɻ' => 126,
+        'ʁ' => 128,
+        'ɽ' => 129,
+        'ʂ' => 130,
+        'ʃ' => 131,
+        'ʈ' => 132,
+        'ʧ' => 133,
+        'ʊ' => 135,
+        'ʋ' => 136,
+        'ʌ' => 138,
+        'ɣ' => 139,
+        'ɤ' => 140,
+        'χ' => 142,
+        'ʎ' => 143,
+        'ʒ' => 147,
+        'ʔ' => 148,
+        'ˈ' => 156,
+        'ˌ' => 157,
+        'ː' => 158,
+        'ʰ' => 162,
+        'ʲ' => 164,
+        '↓' => 169,
+        '→' => 171,
+        '↗' => 172,
+        '↘' => 173,
+        'ᵻ' => 177,
+        _ => return None,
+    };
+    Some(token)
+}
+
+/// Converts input text to phonemes then integer token indices for Kokoro model.
+pub fn text_to_tokens(text: &str) -> Vec<i64> {
+    let phonemes = g2p_phonemize(text);
+    let mut tokens = vec![0i64]; // Start token ($pad / BOS)
+
+    for ch in phonemes.chars() {
+        if let Some(token) = char_to_kokoro_token(ch) {
+            tokens.push(token);
+        }
+    }
+
+    tokens.push(0i64); // End token ($pad / EOS)
     tokens
 }
 
@@ -235,11 +405,21 @@ mod tests {
     }
 
     #[test]
+    fn test_g2p_phonemize() {
+        let phonemes = g2p_phonemize("Hello world");
+        assert!(!phonemes.is_empty(), "Phonemization should return a non-empty string");
+    }
+
+    #[test]
     fn test_text_to_tokens() {
-        let tokens = text_to_tokens("Hello");
+        let tokens = text_to_tokens("Hello world");
         assert_eq!(tokens.first(), Some(&0i64));
         assert_eq!(tokens.last(), Some(&0i64));
         assert!(tokens.len() > 2);
+        // Ensure tokens map to valid Kokoro vocabulary range [0, 177]
+        for &tok in &tokens {
+            assert!(tok >= 0 && tok <= 177, "Token {} out of Kokoro vocab range", tok);
+        }
     }
 
     #[test]
