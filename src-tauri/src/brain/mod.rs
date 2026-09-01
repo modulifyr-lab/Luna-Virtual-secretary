@@ -50,6 +50,12 @@ impl BrainRouter {
 
 /// Routes user input to either Groq (if online) or Ollama (if offline or if Groq fails).
 pub async fn get_response(user_text: &str, config: &AppConfig) -> Result<String, String> {
+    // 1. Try matching built-in skills first (weather, dictionary, news, file_search, office, web_search)
+    if let Some(skill_res) = crate::skills::SkillDispatcher::try_dispatch(user_text).await {
+        return skill_res;
+    }
+
+    // 2. Fall back to BrainRouter (Groq online / Ollama offline)
     let router = BrainRouter::new(config.groq_api_key.clone(), config.ollama_base_url.clone());
     let is_gpu_heavy = ForegroundContext::is_gpu_heavy(&config.heavy_gpu_apps);
     router.process_prompt(user_text, is_gpu_heavy).await
