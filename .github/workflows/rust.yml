@@ -42,4 +42,4 @@ jobs:
           python-version: '3.11'
 
       - name: Check Python bridge syntax
-        run: python -m py_compile python-bridge/*.py
+        run: python -c "import glob, py_compile; [py_compile.compile(f, doraise=True) for f in glob.glob('python-bridge/*.py')]"
