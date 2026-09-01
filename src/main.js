@@ -5,6 +5,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const sendBtn = document.getElementById('send-btn');
   const messagesList = document.getElementById('messages');
   const thoughtLog = document.getElementById('thought-log');
+  const reasoningContent = document.getElementById('reasoning-content');
   const sttStatusIndicator = document.getElementById('stt-status-indicator');
   const connectionStatusIndicator = document.getElementById('connection-status');
 
@@ -44,7 +45,13 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await invokeCommand('process_user_input', { input: promptText });
       if (res) {
-        appendMessage('Luna', res, 'assistant');
+        const responseText = typeof res === 'object' && res.response !== undefined ? res.response : res;
+        const reasoningText = typeof res === 'object' && res.reasoning !== undefined ? res.reasoning : '';
+
+        appendMessage('Luna', responseText, 'assistant');
+        if (reasoningContent) {
+          reasoningContent.textContent = reasoningText || '(no structured reasoning returned)';
+        }
       } else {
         appendMessage('Luna', 'Luna did not return a response.', 'assistant');
       }

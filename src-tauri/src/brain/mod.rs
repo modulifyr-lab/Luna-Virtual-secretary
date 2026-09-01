@@ -3,18 +3,67 @@ pub mod connectivity;
 pub mod local;
 
 use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use cloud::GroqClient;
 use local::OllamaClient;
 use crate::config::AppConfig;
 use crate::context::ForegroundContext;
 use crate::memory::MemoryStore;
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrainResponse {
+    pub reasoning: String,
+    pub response: String,
+}
+
 /// Personality system prompt for Luna, defined as a constant in one place for easy tuning.
 pub const LUNA_SYSTEM_PROMPT: &str = "\
 You are Luna, a fiery, highly efficient, witty, and sharp-tongued virtual secretary on Windows. \
 You get things done with supreme confidence, directness, and a touch of fiery attitude. \
-Keep your answers brief, snappy, helpful, and full of personality.\
+Keep your answers brief, snappy, helpful, and full of personality.\n\n\
+You MUST ALWAYS respond in the following strict format:\n\
+REASONING: <one short sentence on why/how you're answering>\n\
+RESPONSE: <the actual answer to speak/display>\
 ";
+
+/// Parses the raw LLM response into reasoning and response components.
+/// If parsing fails, falls back gracefully treating the whole output as response.
+pub fn parse_llm_response(raw_output: &str) -> BrainResponse {
+    let raw_trimmed = raw_output.trim();
+    let uppercase = raw_trimmed.to_uppercase();
+
+    if let (Some(reasoning_pos), Some(response_pos)) = (uppercase.find("REASONING:"), uppercase.find("RESPONSE:")) {
+        if reasoning_pos < response_pos {
+            let reasoning_start = reasoning_pos + "REASONING:".len();
+            let reasoning_raw = &raw_trimmed[reasoning_start..response_pos];
+            let reasoning_part = reasoning_raw.trim().trim_matches(|c: char| c == '*' || c == '_' || c == '`');
+
+            let response_start = response_pos + "RESPONSE:".len();
+            let response_raw = &raw_trimmed[response_start..];
+            let response_part = response_raw.trim().trim_matches(|c: char| c == '*' || c == '_' || c == '`');
+
+            let reasoning_text = if reasoning_part.trim().is_empty() {
+                "(no structured reasoning returned)".to_string()
+            } else {
+                reasoning_part.trim().to_string()
+            };
+
+            let response_text = response_part.trim().to_string();
+
+            if !response_text.is_empty() {
+                return BrainResponse {
+                    reasoning: reasoning_text,
+                    response: response_text,
+                };
+            }
+        }
+    }
+
+    BrainResponse {
+        reasoning: "(no structured reasoning returned)".to_string(),
+        response: raw_trimmed.to_string(),
+    }
+}
 
 pub struct BrainRouter {
     groq: GroqClient,
@@ -29,28 +78,36 @@ impl BrainRouter {
         }
     }
 
-    pub async fn process_prompt(&self, prompt: &str, is_gpu_heavy_app: bool) -> Result<String, String> {
+    pub async fn process_prompt(&self, prompt: &str, is_gpu_heavy_app: bool) -> Result<BrainResponse, String> {
         self.process_prompt_with_system(prompt, is_gpu_heavy_app, LUNA_SYSTEM_PROMPT).await
     }
 
-    pub async fn process_prompt_with_system(&self, prompt: &str, is_gpu_heavy_app: bool, system_prompt: &str) -> Result<String, String> {
-        if connectivity::check_online_status().await {
+    pub async fn process_prompt_with_system(&self, prompt: &str, is_gpu_heavy_app: bool, system_prompt: &str) -> Result<BrainResponse, String> {
+        let raw_res = if connectivity::check_online_status().await {
             match self.groq.query(prompt, system_prompt).await {
-                Ok(response) => return Ok(response),
+                Ok(response) => Ok(response),
                 Err(err) => {
                     eprintln!("[BrainRouter] Groq Cloud failed ({}), falling back to local Ollama.", err);
+                    let model = if is_gpu_heavy_app {
+                        "phi4-mini"
+                    } else {
+                        "llama3:8b"
+                    };
+                    self.ollama.query(prompt, model, system_prompt).await
                 }
             }
-        }
-
-        // Offline or Groq fallback: select model based on GPU context
-        let model = if is_gpu_heavy_app {
-            "phi4-mini"
         } else {
-            "llama3:8b"
+            // Offline or Groq fallback: select model based on GPU context
+            let model = if is_gpu_heavy_app {
+                "phi4-mini"
+            } else {
+                "llama3:8b"
+            };
+
+            self.ollama.query(prompt, model, system_prompt).await
         };
 
-        self.ollama.query(prompt, model, system_prompt).await
+        raw_res.map(|raw| parse_llm_response(&raw))
     }
 }
 
@@ -72,11 +129,11 @@ pub fn build_system_prompt(memory_store: &MemoryStore) -> String {
 
 /// Routes user input to either Groq (if online) or Ollama (if offline or if Groq fails).
 /// Logs conversations to SQLite memory and triggers background fact extraction.
-pub async fn get_response(user_text: &str, config: &AppConfig) -> Result<String, String> {
+pub async fn get_response(user_text: &str, config: &AppConfig) -> Result<BrainResponse, String> {
     get_response_with_source(user_text, config, "typed").await
 }
 
-pub async fn get_response_with_source(user_text: &str, config: &AppConfig, source: &str) -> Result<String, String> {
+pub async fn get_response_with_source(user_text: &str, config: &AppConfig, source: &str) -> Result<BrainResponse, String> {
     let memory_store = Arc::new(MemoryStore::new(&config.db_path));
     if let Err(e) = memory_store.init() {
         eprintln!("[Memory] DB init warning in get_response: {}", e);
@@ -94,7 +151,10 @@ pub async fn get_response_with_source(user_text: &str, config: &AppConfig, sourc
 
     // 1. Try matching built-in skills first (weather, dictionary, news, file_search, office, web_search)
     let response_res = if let Some(skill_res) = crate::skills::SkillDispatcher::try_dispatch(user_text).await {
-        skill_res
+        skill_res.map(|text| BrainResponse {
+            reasoning: "(skill response)".to_string(),
+            response: text,
+        })
     } else {
         // 2. Fall back to BrainRouter (Groq online / Ollama offline)
         let router = BrainRouter::new(config.groq_api_key.clone(), config.ollama_base_url.clone());
@@ -102,9 +162,9 @@ pub async fn get_response_with_source(user_text: &str, config: &AppConfig, sourc
         router.process_prompt_with_system(user_text, is_gpu_heavy, &system_prompt).await
     };
 
-    if let Ok(ref response_text) = response_res {
+    if let Ok(ref brain_resp) = response_res {
         // Step 2 — Log assistant response
-        if let Err(e) = memory_store.log_conversation("assistant", response_text, "system") {
+        if let Err(e) = memory_store.log_conversation("assistant", &brain_resp.response, "system") {
             eprintln!("[Memory] Failed to log assistant response: {}", e);
         }
 
@@ -159,7 +219,8 @@ async fn maybe_extract_facts(memory_store: Arc<MemoryStore>, config: AppConfig, 
         let sys_prompt = "You are a helpful memory extraction assistant. Extract durable facts accurately and concisely.";
 
         match router.process_prompt_with_system(&extraction_prompt, is_gpu_heavy, sys_prompt).await {
-            Ok(extracted_text) => {
+            Ok(brain_res) => {
+                let extracted_text = brain_res.response;
                 if extracted_text.trim().to_uppercase() != "NONE" {
                     for line in extracted_text.lines() {
                         let trimmed = line.trim();
@@ -231,6 +292,8 @@ mod tests {
 
         let res = get_response_with_source("weather in London", &config, "voice").await;
         assert!(res.is_ok());
+        let brain_resp = res.unwrap();
+        assert_eq!(brain_resp.reasoning, "(skill response)");
 
         let store = MemoryStore::new(db_path_str);
         let convs = store.get_recent_conversations(10).unwrap();
@@ -242,5 +305,37 @@ mod tests {
         assert_eq!(convs[1].source, "system");
 
         let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn test_parse_llm_response_valid_format() {
+        let input = "REASONING: The user asked for a quick greeting.\nRESPONSE: Hello there! How can I assist you today?";
+        let parsed = parse_llm_response(input);
+        assert_eq!(parsed.reasoning, "The user asked for a quick greeting.");
+        assert_eq!(parsed.response, "Hello there! How can I assist you today?");
+    }
+
+    #[test]
+    fn test_parse_llm_response_case_insensitive_headers() {
+        let input = "reasoning: Checking status of weather API.\nresponse: It's sunny outside.";
+        let parsed = parse_llm_response(input);
+        assert_eq!(parsed.reasoning, "Checking status of weather API.");
+        assert_eq!(parsed.response, "It's sunny outside.");
+    }
+
+    #[test]
+    fn test_parse_llm_response_malformed_fallback() {
+        let input = "Just a raw answer without structured format.";
+        let parsed = parse_llm_response(input);
+        assert_eq!(parsed.reasoning, "(no structured reasoning returned)");
+        assert_eq!(parsed.response, "Just a raw answer without structured format.");
+    }
+
+    #[test]
+    fn test_parse_llm_response_empty_reasoning_fallback() {
+        let input = "REASONING:   \nRESPONSE: Direct answer.";
+        let parsed = parse_llm_response(input);
+        assert_eq!(parsed.reasoning, "(no structured reasoning returned)");
+        assert_eq!(parsed.response, "Direct answer.");
     }
 }

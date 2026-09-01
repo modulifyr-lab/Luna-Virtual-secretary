@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tauri::{command, AppHandle, Manager, State};
-use crate::brain;
+use crate::brain::{self, BrainResponse};
 use crate::config::AppConfig;
 use crate::tts::KokoroTts;
 
@@ -10,16 +10,16 @@ pub async fn process_user_input(
     app_handle: AppHandle,
     config: State<'_, AppConfig>,
     tts: State<'_, Arc<KokoroTts>>,
-) -> Result<String, String> {
-    let response = brain::get_response(&input, &config).await?;
+) -> Result<BrainResponse, String> {
+    let brain_res = brain::get_response(&input, &config).await?;
 
     let tts_clone = Arc::clone(&tts);
-    let response_clone = response.clone();
+    let speech_text = brain_res.response.clone();
     let app_handle_clone = app_handle.clone();
 
     tauri::async_runtime::spawn(async move {
         let _ = app_handle_clone.emit_all("stt-state-changed", "speaking");
-        match tts_clone.synthesize_speech(&response_clone).await {
+        match tts_clone.synthesize_speech(&speech_text).await {
             Ok(pcm_bytes) => {
                 if !pcm_bytes.is_empty() {
                     let _ = tts_clone.play_audio(pcm_bytes);
@@ -32,7 +32,7 @@ pub async fn process_user_input(
         let _ = app_handle_clone.emit_all("stt-state-changed", "idle");
     });
 
-    Ok(response)
+    Ok(brain_res)
 }
 
 #[command]

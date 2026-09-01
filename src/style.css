@@ -175,3 +175,34 @@ body {
 .input-bar button:hover {
   opacity: 0.9;
 }
+
+.reasoning-details {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.82rem;
+}
+
+.reasoning-summary {
+  cursor: pointer;
+  color: var(--muted-text);
+  font-weight: 500;
+  user-select: none;
+  outline: none;
+}
+
+.reasoning-summary:hover {
+  color: var(--text-color);
+}
+
+.reasoning-content {
+  margin-top: 6px;
+  color: var(--muted-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.4;
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px dashed var(--border-color);
+}
